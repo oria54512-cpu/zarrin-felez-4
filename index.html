@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>سامانه جامع زرین‌فلز</title>
+  <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { font-family: 'Vazirmatn', Tahoma, sans-serif; }
+    #loading { text-align:center; padding:80px; color:#64748b; font-size:14px; }
+    #error-box { display:none; background:#fee2e2; color:#991b1b; padding:20px; margin:20px; border-radius:12px; font-family:monospace; direction:ltr; text-align:left; white-space:pre-wrap; }
+    .bar-anim { transition: width 1s ease-out; }
+  </style>
+</head>
+<body class="bg-slate-50">
+  <div id="loading">⏳ در حال بارگذاری سامانه...</div>
+  <div id="error-box"></div>
+  <div id="root"></div>
+
+  <script>
+    window.addEventListener('error', function(e) {
+      var box = document.getElementById('error-box');
+      box.style.display = 'block';
+      box.textContent = 'خطا: ' + e.message + '\n' + (e.error && e.error.stack ? e.error.stack : '');
+      document.getElementById('loading').style.display = 'none';
+    });
+  </script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // ==================== USERS & PERMISSIONS ====================
+    const DEFAULT_USERS = {
+      manager:    { password: '1000', label: 'مدیر',     color: 'purple' },
+      commercial: { password: '2000', label: 'بازرگانی', color: 'amber' },
+      warehouse:  { password: '3000', label: 'انباردار', color: 'blue' },
+      production: { password: '4000', label: 'تولید',    color: 'emerald' }
+    };
+
+    const PERMS = {
+      manager: {
+        dashboard: true, viewOrderTotals: true, editOrders: true, deleteOrders: true,
+        manageRM: true, adjustStock: true, createShipment: true, addNewProduct: true,
+        letters: true, tabs: ['dashboard', 'orders', 'rm', 'outbound', 'letters', 'logs']
+      },
+      commercial: {
+        dashboard: true, viewOrderTotals: true, editOrders: true, deleteOrders: true,
+        manageRM: true, adjustStock: true, createShipment: false, addNewProduct: false,
+        letters: true, tabs: ['dashboard', 'orders', 'rm', 'letters', 'logs']
+      },
+      warehouse: {
+        dashboard: false, viewOrderTotals: false, editOrders: false, deleteOrders: false,
+        manageRM: true, adjustStock: true, createShipment: true, addNewProduct: true,
+        letters: true, tabs: ['orders', 'rm', 'outbound', 'letters']
+      },
+      production: {
+        dashboard: false, viewOrderTotals: false, editOrders: false, deleteOrders: false,
+        manageRM: false, adjustStock: false, createShipment: false, addNewProduct: false,
+        letters: true, tabs: ['letters']
+      }
+    };
+
+    // ==================== ICON ====================
+    const Icon = ({ name, className = "w-5 h-5" }) => {
+      const p = {
+        package: "M16.5 9.4 7.5 4.21 M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z",
+        truck: "M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2 M15 18H9 M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14 M17 18a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M7 18a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+        search: "M21 21l-4.3-4.3 M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z",
+        alert: "M12 9v4 M12 17h.01 M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z",
+        plus: "M12 5v14 M5 12h14",
+        x: "M18 6L6 18 M6 6l12 12",
+        lock: "M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z M7 11V7a5 5 0 0 1 10 0v4",
+        building: "M3 21h18 M5 21V7l8-4v18 M19 21V11l-6-4 M9 9h.01 M9 12h.01 M9 15h.01 M9 18h.01",
+        edit: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z",
+        print: "M6 9V2h12v7 M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2 M6 14h12v8H6z",
+        layers: "M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5",
+        chart: "M3 3v18h18 M18 17V9 M13 17V5 M8 17v-3",
+        pie: "M21.21 15.89A10 10 0 1 1 8 2.83 M22 12A10 10 0 0 0 12 2v10z",
+        check: "M20 6L9 17l-5-5",
+        shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
+        mail: "M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z M22 6l-10 7L2 6",
+        download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3",
+        paperclip: "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48",
+        clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 6v6l4 2",
+        trash: "M3 6h18 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+      };
+      return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={p[name] || ""} /></svg>;
+    };
+
+    // ==================== HELPERS ====================
+    const fmt = (n) => { if (n == null) return '0'; return Number(n).toLocaleString('fa-IR'); };
+    const calcRP = (m) => Math.round(m * 0.3);
+    const todayFa = () => { try { return new Intl.DateTimeFormat('fa-IR-u-nu-arab', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); } catch(e) { return new Date().toLocaleDateString(); } };
+    const nowFa = () => { try { return new Intl.DateTimeFormat('fa-IR-u-nu-arab', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit' }).format(new Date()); } catch(e) { return new Date().toLocaleString(); } };
+
+    // ==================== 88 ROWS SEED (Flattened for migration) ====================
+    const INITIAL_ORDERS = [
+      { row: 1, code: "615519", order_name: "دستگیره بغل فرتوکار", output_name: "دستگیره بغل فرتوکار", unit: "عدد", total_order: 5600, prev_sent: 4442, new_sent: 2200, total_sent: 6642, remaining: 0, excess: 1042, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 2, code: "615597", order_name: "لولا کلاسیک ۵ شعله خام", output_name: "زوار لولا 5 شعله 89/5", unit: "عدد", total_order: 18419, prev_sent: 10449, new_sent: 460, total_sent: 10909, remaining: 7510, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 3, code: "616187", order_name: "دستگیره کمانی خام ۴۲ (پرداخت شده)", output_name: "دستگیره کمانی (پرداخت شده) 42", unit: "عدد", total_order: 2285, prev_sent: 1498, new_sent: 361, total_sent: 1859, remaining: 426, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 4, code: "616234", order_name: "دستگیره کمانی بژ ۴۲ / ۴۱", output_name: "دستگیره کمانی بژاستیل / بژخشدار 42", unit: "عدد", total_order: 2873, prev_sent: 600, new_sent: 100, total_sent: 700, remaining: 2173, excess: 0, status: "دارای مانده", notes: "شامل ۵۰۰ عدد نامه ۱۲ مرداد", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 5, code: "616397", order_name: "زوار بین شبکه کلاسیک ۵ شعله", output_name: "زوار تی 5 شعله 88/8", unit: "عدد", total_order: 8422, prev_sent: 7318, new_sent: 900, total_sent: 8218, remaining: 204, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 6, code: "615606", order_name: "مغزی فنر / مغزی لولا تاکنوگاز", output_name: "مغزی لولا تاکنوگاز", unit: "کیلوگرم", total_order: 100, prev_sent: 104.1, new_sent: 13.6, total_sent: 117.7, remaining: 0, excess: 17.7, status: "ارسال مازاد", notes: "واحد کیلوگرم", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 7, code: "615622", order_name: "پین کلاسیک ۵ شعله (تاکنویی)", output_name: "پین تاکنویی", unit: "عدد", total_order: 56630, prev_sent: 25040, new_sent: 1941, total_sent: 26981, remaining: 29649, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 8, code: "615010", order_name: "دستگیره رستم بژ ۶۵/۷", output_name: "دستگیره رستم بژخشدار 65/7", unit: "عدد", total_order: 5700, prev_sent: 3189, new_sent: 495, total_sent: 3684, remaining: 2016, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 9, code: "مانده زرین فلز", order_name: "دستگیره رستم ۳۰/۵", output_name: "در فایل تحویل پیدا نشد", unit: "عدد", total_order: 500, prev_sent: 0, new_sent: 0, total_sent: 0, remaining: 500, excess: 0, status: "ارسال نشده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 10, code: "616532", order_name: "دستگیره یخچالی بژ ۶۵/۷", output_name: "در فایل تحویل ثبت نشده", unit: "عدد", total_order: 3000, prev_sent: 0, new_sent: 0, total_sent: 0, remaining: 3000, excess: 0, status: "ارسال نشده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 11, code: "618647", order_name: "دستگیره یخچالی خام ۶۵/۷ (پرداخت شده)", output_name: "دستگیره کمانی یخچالی 65/7", unit: "عدد", total_order: 7664, prev_sent: 6562, new_sent: 0, total_sent: 6562, remaining: 1102, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 12, code: "615664", order_name: "دسته شیر زیمنس مشکی بژ آکس ۸", output_name: "دسته شیر زیمنس مشکی بژخشدار", unit: "عدد", total_order: 5000, prev_sent: 6540, new_sent: 720, total_sent: 7260, remaining: 0, excess: 2260, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 13, code: "615665", order_name: "دسته شیر زیمنس سفید بژ آکس ۸", output_name: "دسته شیر زیمنس سفید بژخشدار", unit: "عدد", total_order: 9000, prev_sent: 15336, new_sent: 0, total_sent: 15336, remaining: 0, excess: 6336, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 14, code: "615668", order_name: "دسته شیر زیمنس مشکی بژ آکس ۶", output_name: "در فایل تحویل پیدا نشد", unit: "عدد", total_order: 500, prev_sent: 0, new_sent: 0, total_sent: 0, remaining: 500, excess: 0, status: "ارسال نشده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 15, code: "615669", order_name: "دسته شیر زیمنس سفید بژ آکس ۶", output_name: "در فایل تحویل پیدا نشد", unit: "عدد", total_order: 1000, prev_sent: 0, new_sent: 0, total_sent: 0, remaining: 1000, excess: 0, status: "ارسال نشده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 16, code: "615683", order_name: "دسته شیر زیمنس کوچک (رومیزی)", output_name: "دسته شیر زیمنس رومیزی بژخشدار", unit: "عدد", total_order: 6000, prev_sent: 6090, new_sent: 1079, total_sent: 7169, remaining: 0, excess: 1169, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 17, code: "615670", order_name: "دسته شیر V1 سفید بژ آکس ۸", output_name: "دسته شیر 1 سفید بژخشدار", unit: "عدد", total_order: 15000, prev_sent: 8069, new_sent: 540, total_sent: 8609, remaining: 6391, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 18, code: "616139", order_name: "دسته شیر V1 مشکی بژ آکس ۸", output_name: "دسته شیر 1 مشکی بژخشدار", unit: "عدد", total_order: 6000, prev_sent: 4260, new_sent: 2070, total_sent: 6330, remaining: 0, excess: 330, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 19, code: "616140", order_name: "دسته شیر V1 سفید بژ آکس ۶ (صاباف)", output_name: "دسته شیر v1 سفید بژخشدار صاباف", unit: "عدد", total_order: 3000, prev_sent: 300, new_sent: 0, total_sent: 300, remaining: 2700, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 20, code: "616141", order_name: "دسته شیر V1 مشکی بژ آکس ۶ (صاباف)", output_name: "دسته شیر v1 مشکی بژخشدار صاباف", unit: "عدد", total_order: 600, prev_sent: 540, new_sent: 0, total_sent: 540, remaining: 60, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 21, code: "615684", order_name: "دسته شیر A1001", output_name: "دسته شیر A1001 رومیزی بژخشدار", unit: "عدد", total_order: 1500, prev_sent: 900, new_sent: 0, total_sent: 900, remaining: 600, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 22, code: "615682", order_name: "دسته شیر ۱۰۳۱ مشکی خش‌دار", output_name: "در فایل تحویل پیدا نشد", unit: "عدد", total_order: 3500, prev_sent: 0, new_sent: 0, total_sent: 0, remaining: 3500, excess: 0, status: "ارسال نشده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 23, code: "615678", order_name: "دسته شیر V06 فرتوکار 1030-LAB", output_name: "دسته شیر فرتوکار v6", unit: "عدد", total_order: 500, prev_sent: 1230, new_sent: 0, total_sent: 1230, remaining: 0, excess: 730, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 24, code: "مانده زرین فلز", order_name: "دسته شیر چپقی براق", output_name: "در فایل تحویل پیدا نشد", unit: "عدد", total_order: 5000, prev_sent: 0, new_sent: 0, total_sent: 0, remaining: 5000, excess: 0, status: "ارسال نشده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 25, code: "مانده زرین فلز", order_name: "دسته شیر چپقی طلایی", output_name: "دسته شیر چپقی طلایی", unit: "عدد", total_order: 7180, prev_sent: 4260, new_sent: 1440, total_sent: 5700, remaining: 1480, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 26, code: "مانده زرین فلز", order_name: "دسته شیر تریتون", output_name: "دسته شیر تریتون رومیزی بژخشدار", unit: "عدد", total_order: 2050, prev_sent: 3630, new_sent: 0, total_sent: 3630, remaining: 0, excess: 1580, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 27, code: "615571 / 616571", order_name: "پلاستیک زیر دستگیره یخچالی", output_name: "زیر دستگیره یخچالی", unit: "عدد", total_order: 28000, prev_sent: 34148, new_sent: 0, total_sent: 34148, remaining: 0, excess: 6148, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 28, code: "615592", order_name: "ترمینال جعبه تقسیم فرتوکار", output_name: "ترمینال فرتوکار", unit: "عدد", total_order: 3700, prev_sent: 1072, new_sent: 493, total_sent: 1565, remaining: 2135, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 29, code: "615512", order_name: "پولکی سفید (غلامی سعید)", output_name: "پولکی سفید", unit: "عدد", total_order: 60000, prev_sent: 33553, new_sent: 3000, total_sent: 36553, remaining: 23447, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 30, code: "615513", order_name: "پولکی مشکی (غلامی مشکی)", output_name: "پولکی مشکی", unit: "عدد", total_order: 45000, prev_sent: 14980, new_sent: 10200, total_sent: 25180, remaining: 19820, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 31, code: "615087", order_name: "دستگیره در گرم بژ", output_name: "درب گرم خانه بژ", unit: "عدد", total_order: 3326, prev_sent: 1985, new_sent: 1100, total_sent: 3085, remaining: 241, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 32, code: "615047", order_name: "دستگیره کتابی بژ ۲۳/۵", output_name: "دستگیره کتابی بژخشدار 23/5", unit: "عدد", total_order: 500, prev_sent: 850, new_sent: 0, total_sent: 850, remaining: 0, excess: 350, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 33, code: "615046", order_name: "دستگیره کتابی بژ ۳۰/۵", output_name: "دستگیره کتابی بژخشدار 30/5", unit: "عدد", total_order: 286, prev_sent: 942, new_sent: 0, total_sent: 942, remaining: 0, excess: 656, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 34, code: "مانده زرین فلز", order_name: "دستگیره فالکون ۱۳/۸ براق", output_name: "دستگیره فالکون براق 13/8", unit: "عدد", total_order: 460, prev_sent: 720, new_sent: 0, total_sent: 720, remaining: 0, excess: 260, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 35, code: "مانده زرین فلز", order_name: "دستگیره فالکون ۱۳/۸ طلایی", output_name: "دستگیره فالکون طلایی 13/8", unit: "عدد", total_order: 4700, prev_sent: 780, new_sent: 0, total_sent: 780, remaining: 3920, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 36, code: "مانده زرین فلز", order_name: "دستگیره فالکون ۸۶/۸ براق", output_name: "دستگیره فالکون براق 86/8", unit: "عدد", total_order: 300, prev_sent: 15, new_sent: 0, total_sent: 15, remaining: 285, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 37, code: "مانده زرین فلز", order_name: "دستگیره فالکون ۸۶/۸ طلایی", output_name: "دستگیره فالکون طلایی 86/8", unit: "عدد", total_order: 838, prev_sent: 162, new_sent: 0, total_sent: 162, remaining: 676, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 38, code: "616173", order_name: "نافی چپقی فالکون مشکی ترموستات برقی", output_name: "نافی چپقی TB مشکی", unit: "عدد", total_order: 1000, prev_sent: 2638, new_sent: 0, total_sent: 2638, remaining: 0, excess: 1638, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 39, code: "618288", order_name: "نگهدارنده شیشه دوبل درب تکه‌ای 2309-TG", output_name: "نگهدارنده شیشه خار کلاف آلتون", unit: "عدد", total_order: 12500, prev_sent: 12521, new_sent: 0, total_sent: 12521, remaining: 0, excess: 21, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 40, code: "618119", order_name: "سبد قاشق چنگال بالا 2128-TG", output_name: "در فایل تحویل پیدا نشد", unit: "عدد", total_order: 1000, prev_sent: 0, new_sent: 0, total_sent: 0, remaining: 1000, excess: 0, status: "ارسال نشده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 41, code: "618317", order_name: "سبد قاشق چنگال سیار ظرفشویی 2375-TG", output_name: "سبد جا قاشق و چنگال", unit: "عدد", total_order: 2000, prev_sent: 3164, new_sent: 0, total_sent: 3164, remaining: 0, excess: 1164, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 42, code: "618130", order_name: "پایه چرخ 2140-TG", output_name: "پایه چرخ", unit: "عدد", total_order: 16000, prev_sent: 16388, new_sent: 0, total_sent: 16388, remaining: 0, excess: 388, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 43, code: "618131", order_name: "چرخ سبد پایین 2141-TG", output_name: "چرخ سبد پایین", unit: "عدد", total_order: 8000, prev_sent: 9453, new_sent: 0, total_sent: 9453, remaining: 0, excess: 1453, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 44, code: "618136", order_name: "پایه آبکش پایین 2146-TG", output_name: "پایه آبپاش پایین", unit: "عدد", total_order: 1000, prev_sent: 2005, new_sent: 0, total_sent: 2005, remaining: 0, excess: 1005, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 45, code: "618138", order_name: "قاب سنسور کثیفی 2148-TG", output_name: "قاب سنسور کثیفی", unit: "عدد", total_order: 1000, prev_sent: 1370, new_sent: 0, total_sent: 1370, remaining: 0, excess: 370, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 46, code: "618165", order_name: "مهره پایه آبپاش بالا 2175-TG", output_name: "مهره آبپاش وسط", unit: "عدد", total_order: 2000, prev_sent: 4499, new_sent: 0, total_sent: 4499, remaining: 0, excess: 2499, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 47, code: "618140", order_name: "آشغال گیر کف 2150-TG", output_name: "توری آشغال گیر", unit: "عدد", total_order: 1000, prev_sent: 449, new_sent: 0, total_sent: 449, remaining: 551, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 48, code: "618109", order_name: "لقی گیر 2118-TG", output_name: "لق گیر ظرفشویی", unit: "عدد", total_order: 8000, prev_sent: 10480, new_sent: 0, total_sent: 10480, remaining: 0, excess: 2480, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 49, code: "618108", order_name: "چرخ ریل 2117-TG", output_name: "در فایل تحویل پیدا نشد", unit: "عدد", total_order: 6000, prev_sent: 0, new_sent: 0, total_sent: 0, remaining: 6000, excess: 0, status: "ارسال نشده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 50, code: "618667", order_name: "پایه گیره سبد ظرفشویی 2625-TG", output_name: "لولا شاخک تاشو", unit: "عدد", total_order: 2000, prev_sent: 15619, new_sent: 0, total_sent: 15619, remaining: 0, excess: 13619, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 51, code: "618668", order_name: "گیره سبد ظرفشویی 2626-TG", output_name: "پایه شاخک تاشو", unit: "عدد", total_order: 4000, prev_sent: 13387, new_sent: 0, total_sent: 13387, remaining: 0, excess: 9387, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 52, code: "618180", order_name: "زیره آبپاش پایین 2191-TG", output_name: "زیره پره آبپاش پایین", unit: "عدد", total_order: 3000, prev_sent: 4754, new_sent: 0, total_sent: 4754, remaining: 0, excess: 1754, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 53, code: "618579", order_name: "رویه آبپاش پایین 2191-TG", output_name: "رویه پره آبپاش پایین", unit: "عدد", total_order: 2200, prev_sent: 4254, new_sent: 0, total_sent: 4254, remaining: 0, excess: 2054, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 54, code: "618182", order_name: "زیره آبپاش بالا 2193-TG", output_name: "زیره پره آبپاش بالا", unit: "عدد", total_order: 3000, prev_sent: 6072, new_sent: 0, total_sent: 6072, remaining: 0, excess: 3072, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 55, code: "618581", order_name: "رویه آبپاش بالا 2193-TG", output_name: "رویه پره آبپاش بالا", unit: "عدد", total_order: 2600, prev_sent: 4323, new_sent: 0, total_sent: 4323, remaining: 0, excess: 1723, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 56, code: "618184", order_name: "زیره آبپاش وسط 2195-TG", output_name: "زیره پره آبپاش وسط", unit: "عدد", total_order: 1000, prev_sent: 4016, new_sent: 0, total_sent: 4016, remaining: 0, excess: 3016, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 57, code: "618189", order_name: "چپقی 2200-TG", output_name: "چپقی", unit: "عدد", total_order: 3000, prev_sent: 3138, new_sent: 0, total_sent: 3138, remaining: 0, excess: 138, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 58, code: "نامه ۲۶۱۳ / سفارش متنی", order_name: "دایکاست / گوشواره هیوندایی", output_name: "دایکاست هیوندایی", unit: "عدد", total_order: 1600, prev_sent: 2815, new_sent: 0, total_sent: 2815, remaining: 0, excess: 1215, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 59, code: "615598", order_name: "لولا هیوندا خام", output_name: "در فایل تحویل پیدا نشد", unit: "عدد", total_order: 1000, prev_sent: 0, new_sent: 0, total_sent: 0, remaining: 1000, excess: 0, status: "ارسال نشده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 60, code: "671998", order_name: "پاخور کمبی مشکی", output_name: "پاخور کمبی", unit: "عدد", total_order: 750, prev_sent: 511, new_sent: 0, total_sent: 511, remaining: 239, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 61, code: "672099", order_name: "بوش سوراخ دار مشکی", output_name: "بوش سردری سوراخ دار مشکی", unit: "عدد", total_order: 3000, prev_sent: 5711, new_sent: 0, total_sent: 5711, remaining: 0, excess: 2711, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 62, code: "671026", order_name: "بوش آلومینیومی روی لولا یخچال", output_name: "لولا دوقلو بزرگ یخچال", unit: "عدد", total_order: 10000, prev_sent: 10727, new_sent: 0, total_sent: 10727, remaining: 0, excess: 727, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 63, code: "670430", order_name: "لولای پایین آکس ۴۳", output_name: "در فایل تحویل پیدا نشد", unit: "عدد", total_order: 2000, prev_sent: 0, new_sent: 0, total_sent: 0, remaining: 2000, excess: 0, status: "ارسال نشده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 64, code: "670584", order_name: "قاب خار جلو پایی ۲", output_name: "قاب خار جلوپایی یخچال", unit: "عدد", total_order: 10000, prev_sent: 9145, new_sent: 0, total_sent: 9145, remaining: 855, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 65, code: "670579", order_name: "کشو جامیوه ای کمبی ۵۴۰", output_name: "کشو جا میوه ای یخچال", unit: "عدد", total_order: 1500, prev_sent: 1489, new_sent: 0, total_sent: 1489, remaining: 11, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 66, code: "671314", order_name: "درک جامیوه ای کریستال", output_name: "درک جا میوه ای یخچال", unit: "عدد", total_order: 1500, prev_sent: 1489, new_sent: 0, total_sent: 1489, remaining: 11, excess: 0, status: "دارای مانده", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 67, code: "618617", order_name: "زوار کلاف آلومینیومی", output_name: "زوار کلاف آلتون 38/2", unit: "عدد", total_order: 200, prev_sent: 656, new_sent: 0, total_sent: 656, remaining: 0, excess: 456, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 68, code: "670534", order_name: "بوش تزریقی لولای پایین", output_name: "لولا پایین اهرمی سفید", unit: "عدد", total_order: 1000, prev_sent: 1006, new_sent: 0, total_sent: 1006, remaining: 0, excess: 6, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 69, code: "671640", order_name: "زبانه چفت یخچال هوم بار", output_name: "چفت هومبار", unit: "عدد", total_order: 2000, prev_sent: 3427, new_sent: 0, total_sent: 3427, remaining: 0, excess: 1427, status: "ارسال مازاد", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 70, code: "-", order_name: "بدون سفارش", output_name: "کاسه پایین درب موتور", unit: "عدد", total_order: 0, prev_sent: 2019, new_sent: 0, total_sent: 2019, remaining: 0, excess: 2019, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 71, code: "-", order_name: "بدون سفارش", output_name: "سبد بزرگ", unit: "عدد", total_order: 0, prev_sent: 24, new_sent: 0, total_sent: 24, remaining: 0, excess: 24, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 72, code: "-", order_name: "بدون سفارش", output_name: "جعبه بزرگ تاکنویی", unit: "عدد", total_order: 0, prev_sent: 2, new_sent: 0, total_sent: 2, remaining: 0, excess: 2, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 73, code: "-", order_name: "بدون سفارش", output_name: "پیچ کلگی فالکون", unit: "عدد", total_order: 0, prev_sent: 354, new_sent: 0, total_sent: 354, remaining: 0, excess: 354, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 74, code: "-", order_name: "بدون سفارش", output_name: "آبکش (سبد) بالا", unit: "عدد", total_order: 0, prev_sent: 615, new_sent: 0, total_sent: 615, remaining: 0, excess: 615, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 75, code: "-", order_name: "بدون سفارش", output_name: "رویه پره آبپاش وسط", unit: "عدد", total_order: 0, prev_sent: 4125, new_sent: 0, total_sent: 4125, remaining: 0, excess: 4125, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 76, code: "-", order_name: "بدون سفارش", output_name: "بوش سردری بدون سوراخ", unit: "عدد", total_order: 0, prev_sent: 2836, new_sent: 0, total_sent: 2836, remaining: 0, excess: 2836, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 77, code: "-", order_name: "بدون سفارش", output_name: "مادگی ماردون", unit: "عدد", total_order: 0, prev_sent: 7262, new_sent: 0, total_sent: 7262, remaining: 0, excess: 7262, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 78, code: "-", order_name: "بدون سفارش", output_name: "پایه آبپاش بالا", unit: "عدد", total_order: 0, prev_sent: 2048, new_sent: 0, total_sent: 2048, remaining: 0, excess: 2048, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 79, code: "-", order_name: "بدون سفارش", output_name: "دستگیره تخت تاکنو", unit: "عدد", total_order: 0, prev_sent: 1, new_sent: 0, total_sent: 1, remaining: 0, excess: 1, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 80, code: "-", order_name: "بدون سفارش", output_name: "زوار حرارت گیر 5 شعله", unit: "عدد", total_order: 0, prev_sent: 879, new_sent: 0, total_sent: 879, remaining: 0, excess: 879, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 81, code: "-", order_name: "بدون سفارش", output_name: "جعبه زرد", unit: "عدد", total_order: 0, prev_sent: 1, new_sent: 0, total_sent: 1, remaining: 0, excess: 1, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 82, code: "-", order_name: "بدون سفارش", output_name: "دستگیره رستم نمونه", unit: "عدد", total_order: 0, prev_sent: 2, new_sent: 0, total_sent: 2, remaining: 0, excess: 2, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 83, code: "-", order_name: "بدون سفارش", output_name: "دستگیره نمونه جدید", unit: "عدد", total_order: 0, prev_sent: 1, new_sent: 0, total_sent: 1, remaining: 0, excess: 1, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 84, code: "-", order_name: "بدون سفارش", output_name: "دستگیره کمانی آهنی", unit: "عدد", total_order: 0, prev_sent: 4, new_sent: 0, total_sent: 4, remaining: 0, excess: 4, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 85, code: "-", order_name: "بدون سفارش", output_name: "جعبه آبی تاکنویی", unit: "عدد", total_order: 0, prev_sent: 7, new_sent: 0, total_sent: 7, remaining: 0, excess: 7, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 86, code: "-", order_name: "بدون سفارش", output_name: "جوجه گردان", unit: "عدد", total_order: 0, prev_sent: 10, new_sent: 0, total_sent: 10, remaining: 0, excess: 10, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 87, code: "-", order_name: "بدون سفارش", output_name: "لولا دوقلو کوچک", unit: "عدد", total_order: 0, prev_sent: 1222, new_sent: 0, total_sent: 1222, remaining: 0, excess: 1222, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" },
+      { row: 88, code: "-", order_name: "بدون سفارش", output_name: "لوله آهن قطر 25", unit: "عدد", total_order: 0, prev_sent: 2, new_sent: 0, total_sent: 2, remaining: 0, excess: 2, status: "بدون سفارش", notes: "", invoiceId: "INITIAL", invoiceDate: "1400/01/01" }
+    ];
+
+    // ==================== EXPORT HELPERS ====================
+    const exportToExcel = (data, filename) => {
+      const headers = "ردیف,کد,نام سفارش,نام خروجی,واحد,مجموع,ارسالی,مانده,مازاد,وضعیت,توضیحات\n";
+      const safe = s => `"${String(s || '').replace(/"/g, '""')}"`;
+      const rows = data.map(i => [i.row, i.code, safe(i.order_name), safe(i.output_name), i.unit, i.total_order, i.total_sent, i.remaining, i.excess, safe(i.status), safe(i.notes)].join(',')).join('\n');
+      const blob = new Blob(['\uFEFF' + headers + rows], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename + '.csv';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    };
+
+    const exportToPDF = (data, title) => {
+      const rows = data.map(i => `<tr><td style="padding:6px;border:1px solid #ddd;">${i.row}</td><td style="padding:6px;border:1px solid #ddd;">${i.code}</td><td style="padding:6px;border:1px solid #ddd;">${i.order_name}</td><td style="padding:6px;border:1px solid #ddd;">${i.output_name}</td><td style="padding:6px;border:1px solid #ddd;text-align:center;">${fmt(i.total_order)}</td><td style="padding:6px;border:1px solid #ddd;text-align:center;">${fmt(i.total_sent)}</td><td style="padding:6px;border:1px solid #ddd;text-align:center;">${fmt(i.remaining)}</td><td style="padding:6px;border:1px solid #ddd;text-align:center;">${i.status}</td></tr>`).join('');
+      const html = `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>${title}</title><style>@page { size: A4 landscape; margin: 10mm; } body { font-family: Tahoma; direction: rtl; } table { width: 100%; border-collapse: collapse; font-size: 10px; } thead th { background: #1e293b; color: white; padding: 8px; }</style></head><body><h2 style="text-align:center;">${title}</h2><table><thead><tr><th>ردیف</th><th>کد</th><th>نام سفارش</th><th>نام خروجی</th><th>مجموع</th><th>ارسالی</th><th>مانده</th><th>وضعیت</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+      const win = window.open('', '_blank');
+      if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 500); }
+    };
+
+    // ==================== SearchableSelect ====================
+    const SearchableSelect = ({ options, value, onChange, placeholder }) => {
+      const [isOpen, setIsOpen] = useState(false);
+      const [search, setSearch] = useState('');
+      const ref = useRef(null);
+      useEffect(() => {
+        const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setIsOpen(false); };
+        document.addEventListener("mousedown", h);
+        return () => document.removeEventListener("mousedown", h);
+      }, []);
+      const filtered = useMemo(() => {
+        if (!search) return options;
+        const q = search.toLowerCase();
+        return options.filter(o => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q));
+      }, [options, search]);
+      const sel = options.find(o => o.value === value);
+      return (
+        <div ref={ref} className="relative w-full">
+          <div onClick={() => setIsOpen(!isOpen)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer flex justify-between items-center text-xs">
+            <span className={sel ? 'text-slate-900' : 'text-slate-400'}>{sel ? sel.label : placeholder}</span>
+            <span className="text-slate-400">▼</span>
+          </div>
+          {isOpen && (
+            <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+              <div className="p-2 sticky top-0 bg-white border-b border-slate-100">
+                <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="جستجو..." className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500" />
+              </div>
+              <ul className="py-1">
+                {filtered.length === 0 ? <li className="px-4 py-2 text-xs text-slate-400 text-center">موردی نیست</li> : filtered.map(o => (
+                  <li key={o.value} onClick={() => { onChange(o.value); setIsOpen(false); setSearch(''); }} className={"px-4 py-2 text-xs cursor-pointer hover:bg-indigo-50 " + (value === o.value ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-700')}>{o.label}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const Modal = ({ children, onClose, title, wide }) => (
+      <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className={"bg-white rounded-2xl shadow-2xl " + (wide ? "max-w-3xl" : "max-w-md") + " w-full p-6 max-h-[90vh] overflow-y-auto"}>
+          <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
+            <h3 className="font-extrabold text-slate-900 text-base">{title}</h3>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><Icon name="x" /></button>
+          </div>
+          {children}
+        </div>
+      </div>
+    );
+
+    const Field = ({ label, required, children }) => (
+      <div>
+        <label className="block font-bold text-slate-700 mb-1 text-xs">{label}{required && <span className="text-rose-500"> *</span>}</label>
+        {children}
+      </div>
+    );
+
+    // ==================== FIFO LOGIC HELPER ====================
+    // کسر مقدار از سفارشات قدیمی‌تر بر اساس تاریخ
+    const applyFIFO = (orders, code, qtyToShip) => {
+      // پیدا کردن همه سفارشات دارای مانده با این کد
+      let candidates = orders.filter(o => o.code === code && o.remaining > 0);
+      
+      // مرتب‌سازی بر اساس تاریخ (قدیمی‌ترها اول)
+      candidates.sort((a, b) => new Date(a.invoiceDate).getTime() - new Date(b.invoiceDate).getTime());
+
+      let remainingToShip = qtyToShip;
+      const updatedOrders = [...orders];
+
+      for (let i = 0; i < candidates.length; i++) {
+        if (remainingToShip <= 0) break;
+        
+        const order = candidates[i];
+        const orderIndex = updatedOrders.findIndex(o => o.row === order.row);
+        const deduct = Math.min(order.remaining, remainingToShip);
+        
+        // محاسبه مجدد مقادیر
+        const newTotalSent = Number((order.total_sent + deduct).toFixed(2));
+        const newRemaining = Math.max(0, Number((order.total_order - newTotalSent).toFixed(2)));
+        const newExcess = newTotalSent > order.total_order ? Number((newTotalSent - order.total_order).toFixed(2)) : 0;
+        const newStatus = newRemaining === 0 ? (newExcess > 0 ? 'ارسال مازاد' : 'تکمیل شده') : 'دارای مانده';
+
+        updatedOrders[orderIndex] = {
+          ...order,
+          new_sent: order.new_sent + deduct,
+          total_sent: newTotalSent,
+          remaining: newRemaining,
+          excess: newExcess,
+          status: newStatus
+        };
+
+        remainingToShip -= deduct;
+      }
+
+      // اگر مقدار درخواستی بیشتر از کل موجودی بود، مابقی به عنوان مازاد به آخرین سفارش (یا یک سفارش جدید) اضافه می‌شود
+      // در این نسخه فرض می‌کنیم موجودی کافی وجود دارد یا اجازه مازاد را می‌دهیم.
+      // برای سادگی، اگر remainingToShip > 0 باشد، آن را به عنوان ارسال مازاد در یک ردیف جدید ثبت می‌کنیم (یا به سفارش آخر اضافه می‌کنیم)
+      if (remainingToShip > 0) {
+         // ثبت مازاد (اختیاری: می‌توان یک سفارش جدید با کد و نام کالا ایجاد کرد)
+         const lastOrder = candidates[candidates.length - 1];
+         if (lastOrder) {
+             const idx = updatedOrders.findIndex(o => o.row === lastOrder.row);
+             const newTotalSent = Number((updatedOrders[idx].total_sent + remainingToShip).toFixed(2));
+             const newExcess = newTotalSent > updatedOrders[idx].total_order ? Number((newTotalSent - updatedOrders[idx].total_order).toFixed(2)) : 0;
+             updatedOrders[idx] = {
+                 ...updatedOrders[idx],
+                 new_sent: updatedOrders[idx].new_sent + remainingToShip,
+                 total_sent: newTotalSent,
+                 excess: newExcess,
+                 status: 'ارسال مازاد'
+             };
+         }
+      }
+
+      return updatedOrders;
+    };
+
+    // ==================== MISSING COMPONENTS FIX ====================
+    // Dashboard and Letters were referenced by App but were not defined in the original file.
+    const Dashboard = ({ orders = [], rawMaterials = [] }) => {
+      const totalOrders = orders.reduce((sum, o) => sum + (Number(o.total_order) || 0), 0);
+      const totalSent = orders.reduce((sum, o) => sum + (Number(o.total_sent) || 0), 0);
+      const totalRemaining = orders.reduce((sum, o) => sum + (Number(o.remaining) || 0), 0);
+      const balanceOrders = orders.filter(o => (Number(o.remaining) || 0) > 0);
+      const excessOrders = orders.filter(o => (Number(o.excess) || 0) > 0);
+      const lowStock = rawMaterials.filter(rm => (Number(rm.currentStock) || 0) <= (Number(rm.reorderPoint) || 0));
+
+      const StatCard = ({ title, value, color }) => (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+          <p className="text-xs text-slate-500 mb-2">{title}</p>
+          <p className={"text-xl font-black " + color}>{fmt(value)}</p>
+        </div>
+      );
+
+      return (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <StatCard title="تعداد سفارش‌ها" value={orders.length} color="text-indigo-600" />
+            <StatCard title="مجموع سفارش" value={totalOrders} color="text-blue-600" />
+            <StatCard title="مجموع ارسال" value={totalSent} color="text-emerald-600" />
+            <StatCard title="مجموع مانده" value={totalRemaining} color="text-amber-600" />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+              <h3 className="font-bold text-sm mb-3">وضعیت سفارش‌ها</h3>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between"><span>سفارش دارای مانده</span><strong className="text-amber-600">{fmt(balanceOrders.length)}</strong></div>
+                <div className="flex justify-between"><span>ارسال مازاد</span><strong className="text-rose-600">{fmt(excessOrders.length)}</strong></div>
+                <div className="flex justify-between"><span>تکمیل‌شده</span><strong className="text-emerald-600">{fmt(orders.filter(o => Number(o.remaining) === 0 && Number(o.excess) === 0).length)}</strong></div>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+              <h3 className="font-bold text-sm mb-3">هشدار موجودی مواد اولیه</h3>
+              {lowStock.length === 0 ? (
+                <p className="text-xs text-emerald-600 py-3">موردی زیر نقطه سفارش نیست.</p>
+              ) : (
+                <div className="space-y-2">
+                  {lowStock.slice(0, 5).map(rm => (
+                    <div key={rm.id || rm.code} className="flex justify-between items-center bg-rose-50 border border-rose-100 rounded-lg p-2 text-xs">
+                      <span className="font-bold">{rm.name}</span>
+                      <span className="text-rose-600">{fmt(rm.currentStock)} {rm.unit}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <div className="flex justify-between items-center flex-wrap gap-2 mb-3">
+              <h3 className="font-bold text-sm">مانده سفارش‌ها</h3>
+              <span className="text-xs text-amber-600 font-bold">تعداد دارای مانده: {fmt(balanceOrders.length)}</span>
+            </div>
+            {balanceOrders.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-8">هیچ سفارش دارای مانده‌ای وجود ندارد.</p>
+            ) : (
+              <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+                <table className="w-full text-xs min-w-[700px]">
+                  <thead className="sticky top-0 bg-slate-50">
+                    <tr className="text-slate-500 border-b border-slate-200">
+                      <th className="p-2 text-right">ردیف</th>
+                      <th className="p-2 text-right">کد</th>
+                      <th className="p-2 text-right">نام سفارش</th>
+                      <th className="p-2 text-center">مجموع سفارش</th>
+                      <th className="p-2 text-center">ارسالی</th>
+                      <th className="p-2 text-center">مانده</th>
+                      <th className="p-2 text-center">واحد</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {balanceOrders.map((item, index) => (
+                      <tr key={item.id || item.row || index} className="border-b border-slate-100 hover:bg-slate-50">
+                        <td className="p-2">{item.row ?? index + 1}</td>
+                        <td className="p-2">{item.code || "-"}</td>
+                        <td className="p-2 font-bold">{item.order_name || item.output_name || "-"}</td>
+                        <td className="p-2 text-center">{fmt(item.total_order)}</td>
+                        <td className="p-2 text-center">{fmt(item.total_sent)}</td>
+                        <td className="p-2 text-center font-black text-amber-600">{fmt(item.remaining)}</td>
+                        <td className="p-2 text-center">{item.unit || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const Letters = ({ currentRole, letters = [], setLetters, users = {} }) => {
+      const [subject, setSubject] = useState("");
+      const [message, setMessage] = useState("");
+      const [recipients, setRecipients] = useState([]);
+      const [attachments, setAttachments] = useState([]);
+      const [notice, setNotice] = useState("");
+      const [attachmentError, setAttachmentError] = useState("");
+
+      const roleLabels = Object.fromEntries(
+        Object.entries(users).map(([key, user]) => [key, user.label || key])
+      );
+      const availableRecipients = Object.entries(users).filter(([key]) => key !== currentRole);
+      const allSelected = availableRecipients.length > 0 && availableRecipients.every(([key]) => recipients.includes(key));
+
+      const toggleRecipient = (key) => setRecipients(prev => prev.includes(key) ? prev.filter(x => x !== key) : [...prev, key]);
+      const toggleAllRecipients = () => setRecipients(allSelected ? [] : availableRecipients.map(([key]) => key));
+
+      const addAttachments = async (files) => {
+        setAttachmentError("");
+        const chosen = Array.from(files || []);
+        if (attachments.length + chosen.length > 5) {
+          setAttachmentError("حداکثر ۵ فایل برای هر نامه قابل پیوست است.");
+          return;
+        }
+        const maxBytes = 1024 * 1024;
+        const oversized = chosen.find(file => file.size > maxBytes);
+        if (oversized) {
+          setAttachmentError(`حجم فایل «${oversized.name}» بیشتر از ۱ مگابایت است.`);
+          return;
+        }
+        const readFile = file => new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve({ name: file.name, type: file.type || "application/octet-stream", size: file.size, data: reader.result });
+          reader.onerror = () => reject(new Error("خواندن فایل ناموفق بود."));
+          reader.readAsDataURL(file);
+        });
+        try {
+          const loaded = await Promise.all(chosen.map(readFile));
+          setAttachments(prev => [...prev, ...loaded]);
+        } catch (err) {
+          setAttachmentError(err.message || "خطا در خواندن فایل.");
+        }
+      };
+
+      const submitLetter = (e) => {
+        e.preventDefault();
+        if (!subject.trim() || !message.trim() || recipients.length === 0) return;
+        const newLetter = {
+          id: Date.now(),
+          subject: subject.trim(),
+          message: message.trim(),
+          sender: currentRole,
+          recipient: recipients[0], // compatibility with older records
+          recipients: [...recipients],
+          date: nowFa(),
+          read: false,
+          attachments: attachments.map(file => ({ ...file }))
+        };
+        setLetters(prev => [newLetter, ...(Array.isArray(prev) ? prev : [])]);
+        setSubject("");
+        setMessage("");
+        setRecipients([]);
+        setAttachments([]);
+        setNotice("نامه به واحدهای انتخاب‌شده ارسال شد.");
+        setTimeout(() => setNotice(""), 2500);
+      };
+
+      const visibleLetters = (Array.isArray(letters) ? letters : []).filter(letter => {
+        const targets = Array.isArray(letter.recipients) ? letter.recipients : [letter.recipient].filter(Boolean);
+        return letter.sender === currentRole || targets.includes(currentRole);
+      });
+
+      return (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <h3 className="font-bold text-sm mb-3">ثبت نامه جدید</h3>
+            {notice && <p className="text-xs text-emerald-600 mb-2">{notice}</p>}
+            <form onSubmit={submitLetter} className="space-y-3 text-xs">
+              <Field label="گیرندگان / واحدها" required>
+                <div className="border border-slate-200 rounded-lg bg-slate-50 p-2 space-y-2">
+                  <label className="flex items-center gap-2 font-bold text-indigo-700 border-b pb-2">
+                    <input type="checkbox" checked={allSelected} onChange={toggleAllRecipients} /> انتخاب همه واحدها
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {availableRecipients.map(([key, user]) => (
+                      <label key={key} className="flex items-center gap-2 p-2 bg-white border rounded-md cursor-pointer">
+                        <input type="checkbox" checked={recipients.includes(key)} onChange={() => toggleRecipient(key)} />
+                        <span>{user.label || key}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-slate-500">انتخاب‌شده: {recipients.length} واحد</p>
+                </div>
+              </Field>
+              <Field label="موضوع" required>
+                <input value={subject} onChange={e => setSubject(e.target.value)} required className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg" />
+              </Field>
+              <Field label="متن نامه" required>
+                <textarea value={message} onChange={e => setMessage(e.target.value)} required rows={5} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg resize-y" />
+              </Field>
+              <Field label="پیوست فایل (حداکثر ۵ فایل، هر فایل تا ۱ مگابایت)">
+                <input type="file" multiple onChange={e => { addAttachments(e.target.files); e.target.value = ''; }} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg" />
+              </Field>
+              {attachmentError && <p className="text-rose-600">{attachmentError}</p>}
+              {attachments.length > 0 && <div className="space-y-1">
+                {attachments.map((file, i) => <div key={i} className="flex items-center justify-between gap-2 bg-indigo-50 border border-indigo-100 rounded p-2">
+                  <span className="truncate">📎 {file.name} <span className="text-slate-500">({Math.ceil(file.size / 1024)} KB)</span></span>
+                  <button type="button" onClick={() => setAttachments(prev => prev.filter((_, index) => index !== i))} className="text-rose-600 font-bold">حذف</button>
+                </div>)}
+              </div>}
+              <button type="submit" disabled={!subject.trim() || !message.trim() || recipients.length === 0} className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-white py-2 rounded-lg font-bold">ثبت و ارسال نامه</button>
+            </form>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <h3 className="font-bold text-sm mb-3">نامه‌های کارتابل</h3>
+            {visibleLetters.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-8">نامه‌ای ثبت نشده است.</p>
+            ) : (
+              <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                {visibleLetters.map(letter => {
+                  const targets = Array.isArray(letter.recipients) ? letter.recipients : [letter.recipient].filter(Boolean);
+                  return <div key={letter.id} className="bg-slate-50 border border-slate-100 rounded-lg p-3 text-xs">
+                    <div className="flex justify-between gap-2 mb-1">
+                      <strong>{letter.subject || "بدون موضوع"}</strong>
+                      <span className="text-slate-400 whitespace-nowrap">{letter.date || ""}</span>
+                    </div>
+                    <p className="text-slate-500 mb-2">فرستنده: {roleLabels[letter.sender] || letter.sender}</p>
+                    <p className="text-slate-500 mb-2">گیرندگان: {targets.map(key => roleLabels[key] || key).join("، ")}</p>
+                    <p className="whitespace-pre-wrap leading-6">{letter.message || letter.body || ""}</p>
+                    {Array.isArray(letter.attachments) && letter.attachments.length > 0 && <div className="mt-3 pt-2 border-t border-slate-200">
+                      <p className="font-bold mb-1 flex items-center gap-1"><Icon name="paperclip" className="w-3.5 h-3.5" /> فایل‌های پیوست</p>
+                      <div className="flex flex-col gap-1">
+                        {letter.attachments.map((file, i) => <a key={i} href={file.data} download={file.name} target="_blank" rel="noreferrer" className="text-indigo-600 underline break-all">📎 {file.name} ({Math.ceil((file.size || 0) / 1024)} KB)</a>)}
+                      </div>
+                    </div>}
+                  </div>;
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    // ==================== MAIN APP ====================
+    function App() {
+      const [role, setRole] = useState(null);
+      const [isLoggedIn, setIsLoggedIn] = useState(false);
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState(false);
+
+      const [users, setUsers] = useState(() => {
+        const s = localStorage.getItem('zarrinfelez_users_v8');
+        return s ? JSON.parse(s) : DEFAULT_USERS;
+      });
+
+      const [changePassMode, setChangePassMode] = useState(false);
+      const [newPass, setNewPass] = useState({ current: '', new: '', confirm: '' });
+
+      const [activeTab, setActiveTab] = useState('dashboard');
+      const [searchTerm, setSearchTerm] = useState('');
+      
+      const [orders, setOrders] = useState(() => {
+        const s = localStorage.getItem('zarrinfelez_orders_v8');
+        return s ? JSON.parse(s) : INITIAL_ORDERS;
+      });
+      const [rawMaterials, setRawMaterials] = useState(() => {
+        const s = localStorage.getItem('zarrinfelez_rm_v8');
+        return s ? JSON.parse(s) : [];
+      });
+      const [outboundLogs, setOutboundLogs] = useState(() => {
+        const s = localStorage.getItem('zarrinfelez_logs_v8');
+        return s ? JSON.parse(s) : [];
+      });
+      const [letters, setLetters] = useState(() => {
+        const s = localStorage.getItem('zarrinfelez_letters_v8');
+        return s ? JSON.parse(s) : [];
+      });
+      const [activityLogs, setActivityLogs] = useState(() => {
+        const s = localStorage.getItem('zarrinfelez_activity_v8');
+        return s ? JSON.parse(s) : [];
+      });
+
+      const [editOrder, setEditOrder] = useState(null);
+      const [invoiceModal, setInvoiceModal] = useState(false);
+      const [invoiceDraft, setInvoiceDraft] = useState({ id: '', date: todayFa() });
+      const [invoiceCart, setInvoiceCart] = useState([]);
+      const [invoiceProductRow, setInvoiceProductRow] = useState('');
+      const [invoiceProductQty, setInvoiceProductQty] = useState('');
+      const [editInvoice, setEditInvoice] = useState(null);
+      const [editRm, setEditRm] = useState(null);
+      const [rmForm, setRmForm] = useState({ code: '', name: '', unit: 'کیلوگرم', minStock: '', currentStock: '', supplier: '' });
+      
+      const [shipmentMode, setShipmentMode] = useState('order');
+      const [shipmentCart, setShipmentCart] = useState([]);
+      const [selectedOrder, setSelectedOrder] = useState('');
+      const [newProduct, setNewProduct] = useState({ code: '', name: '', unit: 'عدد', qty: '' });
+      const [shipmentQty, setShipmentQty] = useState('');
+      const [recipientName, setRecipientName] = useState('تاکنوگاز - انبار تحویل');
+      
+      const [printData, setPrintData] = useState(null);
+      const [toast, setToast] = useState(null);
+
+      const perms = role ? PERMS[role] : null;
+
+      useEffect(() => { document.getElementById('loading').style.display = 'none'; }, []);
+      useEffect(() => { localStorage.setItem('zarrinfelez_users_v8', JSON.stringify(users)); }, [users]);
+      useEffect(() => { localStorage.setItem('zarrinfelez_orders_v8', JSON.stringify(orders)); }, [orders]);
+      useEffect(() => { localStorage.setItem('zarrinfelez_rm_v8', JSON.stringify(rawMaterials)); }, [rawMaterials]);
+      useEffect(() => { localStorage.setItem('zarrinfelez_logs_v8', JSON.stringify(outboundLogs)); }, [outboundLogs]);
+      useEffect(() => { localStorage.setItem('zarrinfelez_letters_v8', JSON.stringify(letters)); }, [letters]);
+      useEffect(() => { localStorage.setItem('zarrinfelez_activity_v8', JSON.stringify(activityLogs)); }, [activityLogs]);
+      
+      useEffect(() => {
+        if (!toast) return;
+        const t = setTimeout(() => setToast(null), 3000);
+        return () => clearTimeout(t);
+      }, [toast]);
+
+      const logActivity = (action, details) => {
+        setActivityLogs(prev => [{ id: Date.now(), date: nowFa(), user: users[role].label, action, details }, ...prev]);
+      };
+
+      const handleLogin = (e) => {
+        e.preventDefault();
+        const found = Object.entries(users).find(([k, v]) => v.password === password);
+        if (found) {
+          setRole(found[0]);
+          setIsLoggedIn(true);
+          setError(false);
+          setActiveTab(PERMS[found[0]].tabs[0]);
+        } else {
+          setError(true);
+        }
+      };
+
+      const handleLogout = () => {
+        setIsLoggedIn(false);
+        setRole(null);
+        setPassword('');
+        setActiveTab('dashboard');
+      };
+
+      const handleChangePass = (e) => {
+        e.preventDefault();
+        if (newPass.current !== users[role].password) return alert('رمز فعلی اشتباه است.');
+        if (newPass.new !== newPass.confirm) return alert('رمز جدید با تکرار آن مطابقت ندارد.');
+        if (newPass.new.length < 3) return alert('رمز جدید باید حداقل ۳ کاراکتر باشد.');
+        
+        setUsers({ ...users, [role]: { ...users[role], password: newPass.new } });
+        setNewPass({ current: '', new: '', confirm: '' });
+        setChangePassMode(false);
+        alert('رمز عبور با موفقیت تغییر یافت.');
+      };
+
+      const filteredOrders = useMemo(() => {
+        const q = searchTerm.trim().toLowerCase();
+        if (!q) return orders;
+        return orders.filter(o => 
+          o.code.toLowerCase().includes(q) || 
+          o.order_name.toLowerCase().includes(q) || 
+          o.output_name.toLowerCase().includes(q) ||
+          (o.notes && o.notes.toLowerCase().includes(q))
+        );
+      }, [orders, searchTerm]);
+
+      const invoices = useMemo(() => {
+        const groups = {};
+        orders.forEach(order => {
+          const id = order.invoiceId || 'INITIAL';
+          if (!groups[id]) groups[id] = { id, date: order.invoiceDate || '', items: [] };
+          groups[id].items.push(order);
+        });
+        return Object.values(groups).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      }, [orders]);
+
+      const invoiceCatalog = useMemo(() => {
+        const seen = new Set();
+        return orders.filter(o => {
+          const key = `${o.code}|${o.order_name}|${o.output_name}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }, [orders]);
+
+      const addInvoiceItem = (isEditing = false) => {
+        const catalogItem = invoiceCatalog.find(o => String(o.row) === String(invoiceProductRow));
+        const qty = Number(invoiceProductQty);
+        if (!catalogItem) return setToast({ type: 'error', msg: 'کالا را انتخاب کنید.' });
+        if (!Number.isFinite(qty) || qty <= 0) return setToast({ type: 'error', msg: 'مقدار سفارش معتبر وارد کنید.' });
+        const item = { catalogRow: catalogItem.row, code: catalogItem.code, order_name: catalogItem.order_name, output_name: catalogItem.output_name, unit: catalogItem.unit, qty };
+        if (isEditing) setEditInvoice(prev => ({ ...prev, items: [...prev.items, item] }));
+        else setInvoiceCart(prev => [...prev, item]);
+        setInvoiceProductRow(''); setInvoiceProductQty('');
+      };
+
+      const createInvoice = (e) => {
+        e.preventDefault();
+        const invoiceId = invoiceDraft.id.trim();
+        if (!invoiceId || !invoiceDraft.date || invoiceCart.length === 0) return setToast({ type: 'error', msg: 'کد، تاریخ و حداقل یک کالا لازم است.' });
+        if (orders.some(o => (o.invoiceId || 'INITIAL') === invoiceId)) return setToast({ type: 'error', msg: 'این کد فاکتور قبلاً ثبت شده است.' });
+        const startRow = Math.max(0, ...orders.map(o => Number(o.row) || 0)) + 1;
+        const newRows = invoiceCart.map((item, index) => ({
+          row: startRow + index, code: item.code, order_name: item.order_name, output_name: item.output_name, unit: item.unit,
+          total_order: item.qty, prev_sent: 0, new_sent: 0, total_sent: 0, remaining: item.qty, excess: 0,
+          status: 'دارای مانده', notes: '', invoiceId, invoiceDate: invoiceDraft.date
+        }));
+        setOrders(prev => [...prev, ...newRows]);
+        logActivity('ثبت فاکتور', `فاکتور ${invoiceId} با ${newRows.length} قلم کالا ثبت شد.`);
+        setInvoiceModal(false); setInvoiceDraft({ id: '', date: todayFa() }); setInvoiceCart([]);
+        setToast({ type: 'success', msg: 'فاکتور جدید ثبت شد.' });
+      };
+
+      const openEditInvoice = (invoice) => setEditInvoice({ originalId: invoice.id, id: invoice.id, date: invoice.date, items: invoice.items.map(item => ({ catalogRow: item.row, code: item.code, order_name: item.order_name, output_name: item.output_name, unit: item.unit, qty: item.total_order })) });
+
+      const saveInvoiceEdit = (e) => {
+        e.preventDefault();
+        if (!editInvoice.id.trim() || !editInvoice.date || editInvoice.items.length === 0) return setToast({ type: 'error', msg: 'کد، تاریخ و حداقل یک قلم کالا لازم است.' });
+        const oldId = editInvoice.originalId || editInvoice.id;
+        const duplicate = orders.some(o => (o.invoiceId || 'INITIAL') === editInvoice.id && (o.invoiceId || 'INITIAL') !== oldId);
+        if (duplicate) return setToast({ type: 'error', msg: 'کد فاکتور تکراری است.' });
+        const currentRows = orders.filter(o => (o.invoiceId || 'INITIAL') === oldId);
+        const otherRows = orders.filter(o => (o.invoiceId || 'INITIAL') !== oldId);
+        const updatedRows = editInvoice.items.map((item, index) => {
+          const prior = currentRows.find(o => o.row === item.catalogRow && o.code === item.code) || currentRows.find(o => o.code === item.code && o.order_name === item.order_name) || {};
+          const total = Number(item.qty) || 0;
+          const sent = Number(prior.total_sent) || 0;
+          const remaining = Math.max(0, total - sent);
+          const excess = Math.max(0, sent - total);
+          return { ...prior, row: prior.row || (Math.max(0, ...orders.map(o => Number(o.row) || 0)) + index + 1), code: item.code, order_name: item.order_name, output_name: item.output_name, unit: item.unit, total_order: total, total_sent: sent, remaining, excess, status: remaining > 0 ? 'دارای مانده' : excess > 0 ? 'ارسال مازاد' : 'تکمیل شده', invoiceId: editInvoice.id.trim(), invoiceDate: editInvoice.date };
+        });
+        setOrders([...otherRows, ...updatedRows]);
+        logActivity('ویرایش فاکتور', `فاکتور ${oldId} به ${editInvoice.id} ویرایش شد.`);
+        setEditInvoice(null); setToast({ type: 'success', msg: 'فاکتور ویرایش شد.' });
+      };
+
+      const deleteInvoice = (invoice) => {
+        if (!window.confirm(`فاکتور ${invoice.id} و تمام ${invoice.items.length} قلم آن حذف شود؟ این عملیات برگشت‌پذیر نیست.`)) return;
+        setOrders(prev => prev.filter(o => (o.invoiceId || 'INITIAL') !== invoice.id));
+        logActivity('حذف فاکتور', `فاکتور ${invoice.id} و ${invoice.items.length} قلم کالا حذف شد.`);
+        setToast({ type: 'success', msg: 'فاکتور و اقلام آن حذف شد.' });
+      };
+
+      const handleSaveOrder = (e) => {
+        e.preventDefault();
+        setOrders(orders.map(o => o.row === editOrder.row ? editOrder : o));
+        logActivity('ویرایش سفارش', `سفارش ${editOrder.code} ویرایش شد.`);
+        setEditOrder(null);
+        setToast({ type: 'success', msg: 'سفارش ویرایش شد.' });
+      };
+
+      const handleDeleteOrder = (order) => {
+        if (!window.confirm(`آیا از حذف کامل سفارش ${order.code} - ${order.order_name} مطمئن هستید؟`)) return;
+        setOrders(orders.filter(o => o.row !== order.row));
+        logActivity('حذف سفارش', `سفارش ${order.code} - ${order.order_name} حذف شد.`);
+        setToast({ type: 'success', msg: 'سفارش حذف شد.' });
+      };
+
+      const handleSaveRm = (e) => {
+        e.preventDefault();
+        const minStock = Number(rmForm.minStock);
+        const currentStock = Number(rmForm.currentStock);
+        const newItem = {
+          id: editRm && editRm.id ? editRm.id : Date.now(),
+          code: rmForm.code, name: rmForm.name, unit: rmForm.unit,
+          minStock, currentStock, reorderPoint: calcRP(minStock),
+          supplier: rmForm.supplier, lastUpdate: todayFa()
+        };
+        if (editRm && editRm.id) {
+          setRawMaterials(rawMaterials.map(r => r.id === editRm.id ? newItem : r));
+          logActivity('ویرایش ماده اولیه', `ماده اولیه ${rmForm.name} ویرایش شد.`);
+        } else {
+          setRawMaterials([newItem, ...rawMaterials]);
+          logActivity('افزودن ماده اولیه', `ماده اولیه ${rmForm.name} اضافه شد.`);
+        }
+        setEditRm(null);
+        setToast({ type: 'success', msg: 'ماده اولیه ذخیره شد.' });
+      };
+
+      const handleDeleteRm = (id) => {
+        const item = rawMaterials.find(r => r.id === id);
+        if (!window.confirm('حذف شود؟')) return;
+        setRawMaterials(rawMaterials.filter(r => r.id !== id));
+        logActivity('حذف ماده اولیه', `ماده اولیه ${item.name} حذف شد.`);
+        setToast({ type: 'success', msg: 'حذف شد.' });
+      };
+
+      const handleUpdateStock = (id, delta) => {
+        setRawMaterials(rawMaterials.map(r => r.id === id ? { ...r, currentStock: Math.max(0, r.currentStock + delta), lastUpdate: todayFa() } : r));
+      };
+
+      const addOrderToCart = () => {
+        if (!selectedOrder) return setToast({ type: 'error', msg: 'کالا را انتخاب کنید.' });
+        const qty = Number(shipmentQty);
+        if (!qty || qty <= 0) return setToast({ type: 'error', msg: 'مقدار معتبر وارد کنید.' });
+        const existing = shipmentCart.find(c => c.code === selectedOrder && c.source === 'order');
+        if (existing) setShipmentCart(shipmentCart.map(c => c.code === selectedOrder && c.source === 'order' ? { ...c, qty: c.qty + qty } : c));
+        else setShipmentCart([...shipmentCart, { code: selectedOrder, qty, source: 'order' }]);
+        setShipmentQty(''); setSelectedOrder('');
+        setToast({ type: 'success', msg: 'به لیست اضافه شد.' });
+      };
+
+      const addNewProductToCart = () => {
+        if (!newProduct.code || !newProduct.name) return setToast({ type: 'error', msg: 'کد و نام کالا را وارد کنید.' });
+        const qty = Number(newProduct.qty);
+        if (!qty || qty <= 0) return setToast({ type: 'error', msg: 'مقدار معتبر وارد کنید.' });
+        const newItem = {
+          code: newProduct.code,
+          name: newProduct.name,
+          unit: newProduct.unit,
+          qty: qty,
+          source: 'new',
+          isNewProduct: true
+        };
+        setShipmentCart([...shipmentCart, newItem]);
+        setNewProduct({ code: '', name: '', unit: 'عدد', qty: '' });
+        setToast({ type: 'success', msg: 'کالای جدید به لیست اضافه شد.' });
+      };
+
+      const submitShipment = () => {
+        if (!perms.createShipment || shipmentCart.length === 0) return;
+        
+        let updatedOrders = [...orders];
+        const items = [];
+
+        // اعمال منطق FIFO برای هر آیتم سبد
+        shipmentCart.forEach(cartItem => {
+          if (cartItem.source === 'new') {
+            items.push({ code: cartItem.code, name: cartItem.name, qty: cartItem.qty, unit: cartItem.unit, isNewProduct: true });
+            // ثبت یک سفارش جدید مجازی برای کالای جدید تا در تاریخچه بماند
+            const newOrder = {
+              row: Date.now(),
+              code: cartItem.code,
+              order_name: cartItem.name,
+              output_name: cartItem.name,
+              unit: cartItem.unit,
+              total_order: 0,
+              prev_sent: 0,
+              new_sent: cartItem.qty,
+              total_sent: cartItem.qty,
+              remaining: 0,
+              excess: cartItem.qty,
+              status: 'ارسال مازاد',
+              notes: 'ثبت شده از طریق حواله خروج',
+              invoiceId: 'MANUAL-' + Date.now(),
+              invoiceDate: todayFa()
+            };
+            updatedOrders.push(newOrder);
+          } else {
+            // اعمال FIFO
+            updatedOrders = applyFIFO(updatedOrders, cartItem.code, cartItem.qty);
+            const o = orders.find(x => x.code === cartItem.code);
+            items.push({ code: o.code, name: o.output_name, qty: cartItem.qty, unit: o.unit });
+          }
+        });
+
+        setOrders(updatedOrders);
+        
+        const newLog = {
+          id: Date.now(),
+          date: todayFa(),
+          docNo: 'HV-' + Math.floor(1000 + Math.random() * 9000),
+          recipient: recipientName,
+          itemsCount: items.length,
+          status: 'ثبت قطعی',
+          items,
+          createdBy: users[role].label
+        };
+        
+        setOutboundLogs([newLog, ...outboundLogs]);
+        logActivity('صدور حواله', `حواله ${newLog.docNo} برای ${recipientName} صادر شد.`);
+        setPrintData(newLog);
+        setShipmentCart([]);
+        setToast({ type: 'success', msg: 'حواله صادر و از سفارشات کسر شد.' });
+      };
+
+      const handleDeleteShipment = (log) => {
+        if (!window.confirm(`آیا از حذف حواله ${log.docNo} مطمئن هستید؟`)) return;
+        setOutboundLogs(outboundLogs.filter(l => l.id !== log.id));
+        logActivity('حذف حواله', `حواله ${log.docNo} حذف شد.`);
+        setToast({ type: 'success', msg: 'حواله حذف شد.' });
+      };
+
+      const printVoucher = (data) => {
+        if (!data) return;
+        const rows = data.items.map(it => `<tr><td style="padding:8px;border:1px solid #ddd;">${it.code}</td><td style="padding:8px;border:1px solid #ddd;">${it.name}${it.isNewProduct ? ' <span style="color:#10b981;font-size:10px;">[جدید]</span>' : ''}</td><td style="padding:8px;border:1px solid #ddd;text-align:center;font-weight:bold;">${fmt(it.qty)} ${it.unit}</td></tr>`).join('');
+        const html = `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>حواله ${data.docNo}</title><link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet"><style>@page { size: A4; margin: 15mm; } body { font-family: 'Vazirmatn', Tahoma; } .header { border-bottom: 2px solid #1e293b; padding-bottom: 14px; margin-bottom: 18px; display: flex; justify-content: space-between; } table { width: 100%; border-collapse: collapse; font-size: 13px; } thead th { background: #1e293b; color: #fff; padding: 10px; text-align: right; } .signatures { display: flex; justify-content: space-between; margin-top: 60px; } .signatures div { border-top: 1px dashed #94a3b8; padding-top: 8px; width: 30%; text-align: center; } .toolbar { background: #1e293b; color: white; padding: 12px; text-align: center; } .toolbar button { background: #10b981; color: white; border: 0; padding: 8px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; font-family: inherit; } @media print { .toolbar { display: none; } }</style></head><body><div class="toolbar"><button onclick="window.print()">🖨️ چاپ</button></div><div style="padding: 20px;"><div class="header"><div><h1 style="margin:0;font-size:20px;">شرکت زرین‌فلز</h1><div style="font-size:12px;color:#475569;">تحویل به: تاکنوگاز</div></div><div style="text-align:left;font-size:12px;"><div>شماره: <strong>${data.docNo}</strong></div><div>تاریخ: ${data.date}</div><div>صادرکننده: ${data.createdBy || '-'}</div></div></div><div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;margin-bottom:16px;font-size:13px;"><strong>مقصد:</strong> ${data.recipient}</div><table><thead><tr><th>کد</th><th>شرح کالا</th><th style="text-align:center;">مقدار</th></tr></thead><tbody>${rows}</tbody></table><div class="signatures"><div>تحویل‌دهنده</div><div>تحویل‌گیرنده</div><div>مدیر انبار</div></div></div><script>window.onload=function(){setTimeout(function(){window.print();},500);}<\/script></body></html>`;
+        
+        try {
+          const win = window.open('', '_blank', 'width=900,height=750');
+          if (win && win.document) { win.document.open(); win.document.write(html); win.document.close(); return; }
+        } catch (e) {}
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'absolute'; iframe.style.width = '0'; iframe.style.height = '0'; iframe.style.border = '0';
+        document.body.appendChild(iframe);
+        const doc = iframe.contentWindow.document;
+        doc.open(); doc.write(html); doc.close();
+        setTimeout(() => { iframe.contentWindow.focus(); iframe.contentWindow.print(); setTimeout(() => document.body.removeChild(iframe), 2000); }, 800);
+      };
+
+      // ============ LOGIN ============
+      if (!isLoggedIn) {
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-8">
+              <div className="bg-amber-500 w-16 h-16 rounded-2xl mx-auto flex items-center justify-center text-slate-900 shadow-lg mb-4">
+                <Icon name="lock" className="w-8 h-8" />
+              </div>
+              <h1 className="text-xl font-black text-slate-900 text-center mb-1">ورود به سامانه</h1>
+              <p className="text-xs text-slate-500 text-center mb-6">رمز عبور خود را وارد کنید</p>
+              <form onSubmit={handleLogin}>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="رمز عبور" autoFocus className={"w-full p-3 mb-3 bg-slate-50 border rounded-xl text-center tracking-widest outline-none transition " + (error ? 'border-rose-500' : 'border-slate-200')} />
+                {error && <p className="text-rose-500 text-xs mb-3 text-center font-bold">رمز نامعتبر است.</p>}
+                <button type="submit" className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl">ورود</button>
+              </form>
+              <div className="mt-6 pt-4 border-t border-slate-100 text-[10px] text-slate-400 space-y-1 text-center">
+                <p className="font-bold text-slate-500 mb-1">راهنمای تست:</p>
+                <p>مدیر: <strong>1000</strong> | بازرگانی: <strong>2000</strong> | انباردار: <strong>3000</strong> | تولید: <strong>4000</strong></p>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // ============ MAIN ============
+      const roleColor = { manager: 'bg-purple-500 text-white', commercial: 'bg-amber-500 text-slate-900', warehouse: 'bg-blue-500 text-white', production: 'bg-emerald-500 text-white' }[role];
+      const roleBg = { manager: 'bg-purple-50 border-purple-500 text-purple-900', commercial: 'bg-amber-50 border-amber-500 text-amber-900', warehouse: 'bg-blue-50 border-blue-500 text-blue-900', production: 'bg-emerald-50 border-emerald-500 text-emerald-900' }[role];
+
+      return (
+        <div dir="rtl" className="min-h-screen bg-slate-50 text-slate-800 pb-12">
+          {toast && (
+            <div className={"fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-xl shadow-2xl text-sm font-bold " + (toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white')}>{toast.msg}</div>
+          )}
+
+          <header className="bg-slate-900 text-white shadow-xl sticky top-0 z-30">
+            <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="bg-amber-500 p-2 rounded-lg text-slate-900"><Icon name="building" className="w-6 h-6" /></div>
+                <div>
+                  <h1 className="text-lg font-black">سامانه جامع زرین‌فلز</h1>
+                  <p className="text-[10px] text-slate-400">مدیریت انبار و مکاتبات</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className={"px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 " + roleColor}>
+                  <Icon name="shield" className="w-3.5 h-3.5" /> {users[role].label}
+                </div>
+                <button onClick={() => setChangePassMode(true)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-2 rounded-lg text-xs font-bold" title="تغییر رمز"><Icon name="lock" className="w-3.5 h-3.5" /></button>
+                <button onClick={handleLogout} className="bg-rose-600/20 text-rose-300 hover:bg-rose-600/40 px-3 py-2 rounded-xl text-xs font-bold">خروج</button>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-7xl mx-auto px-4 mt-6">
+            <div className={"p-3 rounded-xl mb-4 flex items-center gap-3 border-r-4 " + roleBg}>
+              <Icon name="shield" className="w-5 h-5" />
+              <div>
+                <h4 className="font-bold text-sm">نقش: {users[role].label}</h4>
+                <p className="text-[11px] opacity-80">
+                  {role === 'manager' && 'دسترسی کامل به داشبورد، سفارشات، مواد اولیه، ثبت خروجی و کارتابل.'}
+                  {role === 'commercial' && 'دسترسی به داشبورد، سفارشات، مدیریت مواد اولیه و کارتابل.'}
+                  {role === 'warehouse' && 'دسترسی به سفارشات (محدود)، موجودی انبار، ثبت خروجی و کارتابل.'}
+                  {role === 'production' && 'دسترسی به کارتابل نامه‌های درون‌سازمانی.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex border-b border-slate-200 mb-6 gap-2 overflow-x-auto">
+              {perms.dashboard && <button onClick={() => setActiveTab('dashboard')} className={"px-4 py-2 font-bold text-sm border-b-2 whitespace-nowrap flex items-center gap-1.5 " + (activeTab === 'dashboard' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500')}><Icon name="pie" className="w-4 h-4" /> داشبورد</button>}
+              <button onClick={() => setActiveTab('orders')} className={"px-4 py-2 font-bold text-sm border-b-2 whitespace-nowrap " + (activeTab === 'orders' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500')}>سفارشات</button>
+              <button onClick={() => setActiveTab('rm')} className={"px-4 py-2 font-bold text-sm border-b-2 whitespace-nowrap flex items-center gap-1.5 " + (activeTab === 'rm' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500')}><Icon name="layers" className="w-4 h-4" /> موجودی انبار</button>
+              {perms.createShipment && <button onClick={() => setActiveTab('outbound')} className={"px-4 py-2 font-bold text-sm border-b-2 whitespace-nowrap " + (activeTab === 'outbound' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500')}>ثبت خروجی</button>}
+              <button onClick={() => setActiveTab('letters')} className={"px-4 py-2 font-bold text-sm border-b-2 whitespace-nowrap flex items-center gap-1.5 " + (activeTab === 'letters' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500')}><Icon name="mail" className="w-4 h-4" /> کارتابل</button>
+              {perms.tabs.includes('logs') && <button onClick={() => setActiveTab('logs')} className={"px-4 py-2 font-bold text-sm border-b-2 whitespace-nowrap flex items-center gap-1.5 " + (activeTab === 'logs' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500')}><Icon name="clock" className="w-4 h-4" /> تاریخچه</button>}
+            </div>
+
+            {activeTab === 'dashboard' && perms.dashboard && <Dashboard orders={orders} rawMaterials={rawMaterials} />}
+            {activeTab === 'letters' && <Letters currentRole={role} letters={letters} setLetters={setLetters} users={users} />}
+
+            {activeTab === 'logs' && perms.tabs.includes('logs') && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><Icon name="clock" className="w-4 h-4 text-indigo-600" /> تاریخچه فعالیت‌ها</h3>
+                <div className="space-y-2">
+                  {activityLogs.length === 0 ? <p className="text-xs text-slate-400 text-center py-8">فعالیتی ثبت نشده.</p> : activityLogs.map(log => (
+                    <div key={log.id} className="flex justify-between items-center bg-slate-50 p-2 rounded text-xs border border-slate-100">
+                      <div>
+                        <span className="font-bold text-slate-800">{log.action}</span>
+                        <span className="text-slate-500 mr-2">- {log.details}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {log.user} | {log.date}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'orders' && (
+              <div className="space-y-4">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                  <div className="flex justify-between items-center flex-wrap gap-2 mb-3">
+                    <h3 className="font-bold text-sm">فاکتورهای سفارش</h3>
+                    {perms.editOrders && <button onClick={() => { setInvoiceDraft({ id: '', date: todayFa() }); setInvoiceCart([]); setInvoiceModal(true); }} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg text-xs font-bold">+ ثبت فاکتور جدید</button>}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {invoices.map(invoice => {
+                      const total = invoice.items.reduce((sum, item) => sum + (Number(item.total_order) || 0), 0);
+                      const remaining = invoice.items.reduce((sum, item) => sum + (Number(item.remaining) || 0), 0);
+                      return <div key={invoice.id} className="border border-slate-200 rounded-xl p-3 bg-slate-50">
+                        <div className="flex justify-between items-start gap-2"><div><p className="font-black text-sm">{invoice.id === 'INITIAL' ? 'سفارشات اولیه (تاکنوگاز)' : invoice.id}</p><p className="text-[10px] text-slate-500 mt-1">تاریخ: {invoice.date || '-'}</p></div><span className="bg-indigo-100 text-indigo-700 rounded px-2 py-1 text-[10px] font-bold">{invoice.items.length} قلم</span></div>
+                        <div className="grid grid-cols-3 gap-2 mt-3 text-[10px]"><div className="bg-white rounded p-2"><p className="text-slate-400">مجموع</p><strong>{fmt(total)}</strong></div><div className="bg-white rounded p-2"><p className="text-slate-400">مانده</p><strong className="text-amber-600">{fmt(remaining)}</strong></div><div className="bg-white rounded p-2"><p className="text-slate-400">ارسالی</p><strong className="text-indigo-600">{fmt(invoice.items.reduce((sum, item) => sum + (Number(item.total_sent) || 0), 0))}</strong></div></div>
+                        {perms.editOrders && invoice.id !== 'INITIAL' && <div className="flex justify-end gap-2 mt-3 border-t pt-2"><button onClick={() => openEditInvoice(invoice)} className="text-indigo-600 text-xs font-bold">ویرایش فاکتور</button>{perms.deleteOrders && <button onClick={() => deleteInvoice(invoice)} className="text-rose-600 text-xs font-bold">حذف کامل</button>}</div>}
+                      </div>;
+                    })}
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
+                  <div className="relative w-64">
+                    <input type="text" placeholder="جستجو در همه..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full p-2 pr-8 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500" />
+                    <Icon name="search" className="absolute right-2 top-2.5 w-4 h-4 text-slate-400" />
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => exportToExcel(filteredOrders, 'orders')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5"><Icon name="download" className="w-3.5 h-3.5" /> خروجی اکسل</button>
+                    <button onClick={() => exportToPDF(filteredOrders, 'گزارش سفارشات')} className="bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5"><Icon name="download" className="w-3.5 h-3.5" /> خروجی PDF</button>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-slate-100 text-slate-700">
+                      <tr>
+                        <th className="p-2">#</th>
+                        <th className="p-2">کد سفارش</th>
+                        <th className="p-2">تاریخ</th>
+                        <th className="p-2">کد کالا</th>
+                        <th className="p-2">نام سفارش</th>
+                        <th className="p-2">خروجی</th>
+                        {perms.viewOrderTotals && <th className="p-2 text-center">مجموع</th>}
+                        <th className="p-2 text-center">ارسالی</th>
+                        {perms.viewOrderTotals && <th className="p-2 text-center">مانده</th>}
+                        <th className="p-2 text-center">وضعیت</th>
+                        {perms.editOrders && <th className="p-2 text-center">عملیات</th>}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredOrders.map(item => (
+                        <tr key={item.row} className="hover:bg-slate-50">
+                          <td className="p-2 text-center">{fmt(item.row)}</td>
+                          <td className="p-2 font-mono text-[10px]">{item.invoiceId}</td>
+                          <td className="p-2 text-[10px]">{item.invoiceDate}</td>
+                          <td className="p-2 font-mono">{item.code}</td>
+                          <td className="p-2">{item.order_name}</td>
+                          <td className="p-2 text-slate-500">{item.output_name}</td>
+                          {perms.viewOrderTotals && <td className="p-2 text-center">{fmt(item.total_order)}</td>}
+                          <td className="p-2 text-center text-indigo-600 font-bold">{fmt(item.total_sent)}</td>
+                          {perms.viewOrderTotals && <td className="p-2 text-center text-amber-600 font-bold">{fmt(item.remaining)}</td>}
+                          <td className="p-2 text-center"><span className={"px-2 py-0.5 rounded text-[10px] font-bold " + (item.status === 'تکمیل شده' ? 'bg-emerald-100 text-emerald-700' : item.status === 'ارسال مازاد' ? 'bg-rose-100 text-rose-700' : item.status === 'بدون سفارش' ? 'bg-slate-100 text-slate-700' : 'bg-amber-100 text-amber-700')}>{item.status}</span></td>
+                          {perms.editOrders && (
+                            <td className="p-2 text-center flex justify-center gap-2">
+                              <button onClick={() => setEditOrder({...item})} className="text-indigo-600 hover:text-indigo-800"><Icon name="edit" className="w-3.5 h-3.5" /></button>
+                              {perms.deleteOrders && <button onClick={() => handleDeleteOrder(item)} className="text-rose-600 hover:text-rose-800"><Icon name="trash" className="w-3.5 h-3.5" /></button>}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'rm' && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
+                  <h3 className="font-bold text-sm">مواد اولیه (نقطه سفارش خودکار ۳۰٪)</h3>
+                  <div className="flex gap-2">
+                    <button onClick={() => exportToExcel(rawMaterials, 'raw_materials')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5"><Icon name="download" className="w-3.5 h-3.5" /> اکسل</button>
+                    {perms.manageRM && (
+                      <button onClick={() => { setEditRm({}); setRmForm({ code: '', name: '', unit: 'کیلوگرم', minStock: '', currentStock: '', supplier: '' }); }} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"><Icon name="plus" className="w-3.5 h-3.5" /> تعریف جدید</button>
+                    )}
+                  </div>
+                </div>
+                {rawMaterials.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400 text-xs">هیچ ماده اولیه‌ای تعریف نشده است.{perms.manageRM && ' از دکمه «تعریف جدید» استفاده کنید.'}</div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {rawMaterials.map(rm => {
+                      const isLow = rm.currentStock <= rm.reorderPoint;
+                      return (
+                        <div key={rm.id} className={"p-3 rounded-xl border " + (isLow ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200')}>
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <span className="text-[10px] font-mono bg-slate-200 px-1.5 py-0.5 rounded">{rm.code}</span>
+                              <h4 className="font-bold text-sm mt-1">{rm.name}</h4>
+                            </div>
+                            {perms.manageRM && (
+                              <div className="flex gap-1">
+                                <button onClick={() => { setEditRm(rm); setRmForm(rm); }} className="text-slate-400 hover:text-indigo-600"><Icon name="edit" className="w-3.5 h-3.5" /></button>
+                                <button onClick={() => handleDeleteRm(rm.id)} className="text-slate-400 hover:text-rose-600"><Icon name="x" className="w-3.5 h-3.5" /></button>
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-xs space-y-1 mb-3">
+                            <div className="flex justify-between"><span>موجودی:</span><span className={"font-bold " + (isLow ? 'text-rose-600' : 'text-emerald-600')}>{fmt(rm.currentStock)} {rm.unit}</span></div>
+                            <div className="flex justify-between"><span>نقطه سفارش:</span><span className="text-amber-600 font-bold">{fmt(rm.reorderPoint)} {rm.unit}</span></div>
+                            <div className="flex justify-between"><span>حداقل ایمن:</span><span>{fmt(rm.minStock)} {rm.unit}</span></div>
+                          </div>
+                          {perms.adjustStock && (
+                            <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+                              <span className="text-[10px] text-slate-400">{rm.lastUpdate}</span>
+                              <div className="flex gap-1">
+                                <button onClick={() => handleUpdateStock(rm.id, -50)} className="bg-white border border-slate-200 px-2 py-1 rounded text-[10px] hover:bg-rose-50">-50</button>
+                                <button onClick={() => handleUpdateStock(rm.id, 100)} className="bg-white border border-slate-200 px-2 py-1 rounded text-[10px] hover:bg-emerald-50">+100</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'outbound' && perms.createShipment && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                  <h3 className="font-bold text-sm mb-3">ثبت حواله خروج</h3>
+                  
+                  <div className="flex gap-1 mb-3 bg-slate-100 p-1 rounded-lg">
+                    <button onClick={() => setShipmentMode('order')} className={"flex-1 py-1.5 rounded text-xs font-bold " + (shipmentMode === 'order' ? 'bg-white shadow text-indigo-600' : 'text-slate-500')}>از سفارشات</button>
+                    <button onClick={() => setShipmentMode('new')} className={"flex-1 py-1.5 rounded text-xs font-bold " + (shipmentMode === 'new' ? 'bg-white shadow text-indigo-600' : 'text-slate-500')}>کالای جدید</button>
+                  </div>
+
+                  {shipmentMode === 'order' ? (
+                    <div className="space-y-3 mb-3">
+                      <Field label="کالا (جستجوپذیر - همه محصولات)">
+                        <SearchableSelect 
+                          options={orders.filter(o=>o.remaining>0).map(o => ({ value: o.code, label: o.code + ' - ' + (o.order_name || o.output_name) + ' (مانده: ' + o.remaining + ')' }))}
+                          value={selectedOrder} 
+                          onChange={setSelectedOrder} 
+                          placeholder="انتخاب کنید..." 
+                        />
+                      </Field>
+                      <Field label="مقدار">
+                        <input type="number" value={shipmentQty} onChange={e => setShipmentQty(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                      </Field>
+                      <button onClick={addOrderToCart} className="w-full bg-slate-800 text-white py-2 rounded-lg text-xs font-bold">افزودن به لیست</button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 mb-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <Field label="کد کالا" required><input value={newProduct.code} onChange={e => setNewProduct({...newProduct, code: e.target.value})} placeholder="مثلا 999999" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></Field>
+                        <Field label="واحد" required>
+                          <select value={newProduct.unit} onChange={e => setNewProduct({...newProduct, unit: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+                            <option>عدد</option><option>کیلوگرم</option><option>متر</option><option>لیتر</option>
+                          </select>
+                        </Field>
+                      </div>
+                      <Field label="نام کالا" required><input value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} placeholder="نام کامل" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></Field>
+                      <Field label="مقدار" required><input type="number" value={newProduct.qty} onChange={e => setNewProduct({...newProduct, qty: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></Field>
+                      <button onClick={addNewProductToCart} className="w-full bg-emerald-600 text-white py-2 rounded-lg text-xs font-bold">افزودن کالای جدید به لیست</button>
+                    </div>
+                  )}
+
+                  {shipmentCart.length > 0 && (
+                    <div className="mb-3 border-t pt-2">
+                      <h4 className="text-xs font-bold text-slate-700 mb-2">اقلام ({fmt(shipmentCart.length)}):</h4>
+                      {shipmentCart.map((c, i) => {
+                        let name = c.name;
+                        if (c.source === 'order') { const o = orders.find(x => x.code === c.code); name = o && (o.order_name || o.output_name); }
+                        return (
+                          <div key={i} className="flex justify-between items-center bg-slate-50 p-2 rounded mb-1 text-xs">
+                            <div className="flex items-center gap-1.5 truncate">
+                              {c.source === 'new' && <span className="bg-emerald-100 text-emerald-700 text-[9px] px-1 rounded">جدید</span>}
+                              <span className="truncate">{name}</span>
+                            </div>
+                            <div className="flex gap-2">
+                              <span className="font-bold">{fmt(c.qty)}</span>
+                              <button onClick={() => setShipmentCart(shipmentCart.filter((_, idx) => idx !== i))} className="text-rose-500"><Icon name="x" className="w-3 h-3" /></button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <Field label="گیرنده"><input value={recipientName} onChange={e => setRecipientName(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-3" /></Field>
+                  <button onClick={submitShipment} disabled={shipmentCart.length === 0} className="w-full bg-indigo-600 disabled:bg-slate-300 text-white py-2 rounded-lg text-xs font-bold">ثبت و صدور حواله (FIFO)</button>
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 lg:col-span-2">
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="font-bold text-sm">تاریخچه حواله‌ها</h3>
+                    <button onClick={() => exportToExcel(outboundLogs, 'outbound_logs')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5"><Icon name="download" className="w-3.5 h-3.5" /> اکسل</button>
+                  </div>
+                  {outboundLogs.length === 0 ? <p className="text-xs text-slate-400 text-center py-8">حواله‌ای ثبت نشده.</p> : (
+                    <div className="space-y-2">
+                      {outboundLogs.map(log => (
+                        <div key={log.id} className="flex justify-between items-center bg-slate-50 p-2 rounded text-xs border border-slate-100">
+                          <div>
+                            <span className="font-mono font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded text-[10px]">{log.docNo}</span>
+                            <span className="text-slate-500 mr-2">{log.date}</span>
+                            <p className="mt-1 font-bold">{log.recipient}</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">{fmt(log.itemsCount)} قلم | صادر: {log.createdBy}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={() => printVoucher(log)} className="text-indigo-600 hover:text-indigo-800"><Icon name="print" className="w-4 h-4" /></button>
+                            {perms.createShipment && <button onClick={() => handleDeleteShipment(log)} className="text-rose-600 hover:text-rose-800"><Icon name="trash" className="w-4 h-4" /></button>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </main>
+
+          {changePassMode && (
+            <Modal onClose={() => setChangePassMode(false)} title="تغییر رمز عبور">
+              <form onSubmit={handleChangePass} className="space-y-3 text-xs">
+                <Field label="رمز فعلی" required><input type="password" required value={newPass.current} onChange={e => setNewPass({...newPass, current: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                <Field label="رمز جدید" required><input type="password" required value={newPass.new} onChange={e => setNewPass({...newPass, new: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                <Field label="تکرار رمز جدید" required><input type="password" required value={newPass.confirm} onChange={e => setNewPass({...newPass, confirm: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  <button type="button" onClick={() => setChangePassMode(false)} className="px-4 py-2 bg-slate-100 rounded font-bold">انصراف</button>
+                  <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded font-bold">ذخیره</button>
+                </div>
+              </form>
+            </Modal>
+          )}
+
+          {invoiceModal && perms.editOrders && (
+            <Modal onClose={() => setInvoiceModal(false)} title="ثبت فاکتور جدید" wide>
+              <form onSubmit={createInvoice} className="space-y-4 text-xs">
+                <div className="grid grid-cols-2 gap-3"><Field label="کد فاکتور" required><input value={invoiceDraft.id} onChange={e => setInvoiceDraft({ ...invoiceDraft, id: e.target.value })} placeholder="ORD-1405-01" required className="w-full p-2 border rounded" /></Field><Field label="تاریخ" required><input value={invoiceDraft.date} onChange={e => setInvoiceDraft({ ...invoiceDraft, date: e.target.value })} required className="w-full p-2 border rounded" /></Field></div>
+                <div className="grid grid-cols-3 gap-2 items-end"><Field label="کالا"><select value={invoiceProductRow} onChange={e => setInvoiceProductRow(e.target.value)} className="w-full p-2 border rounded bg-white"><option value="">انتخاب کالا...</option>{invoiceCatalog.map(item => <option key={item.row} value={item.row}>{item.code} - {item.order_name}</option>)}</select></Field><Field label="مقدار سفارش"><input type="number" min="0.01" step="any" value={invoiceProductQty} onChange={e => setInvoiceProductQty(e.target.value)} className="w-full p-2 border rounded" /></Field><button type="button" onClick={() => addInvoiceItem(false)} className="bg-emerald-600 text-white p-2 rounded font-bold">افزودن کالا</button></div>
+                {invoiceCart.length > 0 && <div className="border rounded-lg overflow-hidden"><table className="w-full text-xs"><thead className="bg-slate-100"><tr><th className="p-2 text-right">کالا</th><th className="p-2">مقدار</th><th className="p-2">واحد</th><th className="p-2">حذف</th></tr></thead><tbody>{invoiceCart.map((item, i) => <tr key={i} className="border-t"><td className="p-2">{item.code} - {item.order_name}</td><td className="p-2 text-center">{fmt(item.qty)}</td><td className="p-2 text-center">{item.unit}</td><td className="p-2 text-center"><button type="button" onClick={() => setInvoiceCart(prev => prev.filter((_, index) => index !== i))} className="text-rose-600">×</button></td></tr>)}</tbody></table></div>}
+                <div className="flex justify-end gap-2 border-t pt-3"><button type="button" onClick={() => setInvoiceModal(false)} className="px-4 py-2 bg-slate-100 rounded font-bold">انصراف</button><button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded font-bold">ثبت فاکتور</button></div>
+              </form>
+            </Modal>
+          )}
+
+          {editInvoice && perms.editOrders && (
+            <Modal onClose={() => setEditInvoice(null)} title="ویرایش فاکتور" wide>
+              <form onSubmit={saveInvoiceEdit} className="space-y-4 text-xs">
+                <div className="grid grid-cols-2 gap-3"><Field label="کد فاکتور" required><input value={editInvoice.id} onChange={e => setEditInvoice({ ...editInvoice, id: e.target.value })} required className="w-full p-2 border rounded" /></Field><Field label="تاریخ" required><input value={editInvoice.date} onChange={e => setEditInvoice({ ...editInvoice, date: e.target.value })} required className="w-full p-2 border rounded" /></Field></div>
+                <div className="grid grid-cols-3 gap-2 items-end"><Field label="کالا"><select value={invoiceProductRow} onChange={e => setInvoiceProductRow(e.target.value)} className="w-full p-2 border rounded bg-white"><option value="">انتخاب کالا...</option>{invoiceCatalog.map(item => <option key={item.row} value={item.row}>{item.code} - {item.order_name}</option>)}</select></Field><Field label="مقدار"><input type="number" min="0.01" step="any" value={invoiceProductQty} onChange={e => setInvoiceProductQty(e.target.value)} className="w-full p-2 border rounded" /></Field><button type="button" onClick={() => addInvoiceItem(true)} className="bg-emerald-600 text-white p-2 rounded font-bold">افزودن کالا</button></div>
+                <div className="border rounded-lg overflow-hidden"><table className="w-full text-xs"><thead className="bg-slate-100"><tr><th className="p-2 text-right">کالا</th><th className="p-2">مقدار سفارش</th><th className="p-2">حذف</th></tr></thead><tbody>{editInvoice.items.map((item, i) => <tr key={i} className="border-t"><td className="p-2">{item.code} - {item.order_name}</td><td className="p-2 text-center"><input type="number" min="0" step="any" value={item.qty} onChange={e => setEditInvoice(prev => ({ ...prev, items: prev.items.map((x, index) => index === i ? { ...x, qty: Number(e.target.value) } : x) }))} className="w-24 p-1 border rounded text-center" /></td><td className="p-2 text-center"><button type="button" onClick={() => setEditInvoice(prev => ({ ...prev, items: prev.items.filter((_, index) => index !== i) }))} className="text-rose-600">×</button></td></tr>)}</tbody></table></div>
+                <div className="flex justify-end gap-2 border-t pt-3"><button type="button" onClick={() => setEditInvoice(null)} className="px-4 py-2 bg-slate-100 rounded font-bold">انصراف</button><button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded font-bold">ذخیره تغییرات</button></div>
+              </form>
+            </Modal>
+          )}
+
+          {editOrder && perms.editOrders && (
+            <Modal onClose={() => setEditOrder(null)} title="ویرایش سفارش" wide>
+              <form onSubmit={handleSaveOrder} className="space-y-3 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="کد سفارش"><input value={editOrder.invoiceId} onChange={e => setEditOrder({...editOrder, invoiceId: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                  <Field label="تاریخ سفارش"><input value={editOrder.invoiceDate} onChange={e => setEditOrder({...editOrder, invoiceDate: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="کد کالا"><input value={editOrder.code} onChange={e => setEditOrder({...editOrder, code: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                  <Field label="واحد"><select value={editOrder.unit} onChange={e => setEditOrder({...editOrder, unit: e.target.value})} className="w-full p-2 border rounded bg-white"><option>عدد</option><option>کیلوگرم</option><option>متر</option><option>لیتر</option></select></Field>
+                </div>
+                <Field label="نام سفارش"><input value={editOrder.order_name} onChange={e => setEditOrder({...editOrder, order_name: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                <Field label="نام خروجی"><input value={editOrder.output_name} onChange={e => setEditOrder({...editOrder, output_name: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label="مجموع"><input type="number" value={editOrder.total_order} onChange={e => setEditOrder({...editOrder, total_order: Number(e.target.value)})} className="w-full p-2 border rounded" /></Field>
+                  <Field label="ارسالی"><input type="number" value={editOrder.total_sent} onChange={e => setEditOrder({...editOrder, total_sent: Number(e.target.value)})} className="w-full p-2 border rounded" /></Field>
+                  <Field label="مانده"><input type="number" value={editOrder.remaining} onChange={e => setEditOrder({...editOrder, remaining: Number(e.target.value)})} className="w-full p-2 border rounded" /></Field>
+                </div>
+                <Field label="یادداشت"><input value={editOrder.notes || ''} onChange={e => setEditOrder({...editOrder, notes: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                <div className="flex justify-end gap-2 pt-2 border-t"><button type="button" onClick={() => setEditOrder(null)} className="px-4 py-2 bg-slate-100 rounded font-bold">انصراف</button><button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded font-bold">ذخیره</button></div>
+              </form>
+            </Modal>
+          )}
+
+          {editRm && perms.manageRM && (
+            <Modal onClose={() => setEditRm(null)} title={editRm.id ? "ویرایش ماده اولیه" : "تعریف ماده اولیه"}>
+              <form onSubmit={handleSaveRm} className="space-y-3 text-xs">
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="کد" required><input required value={rmForm.code} onChange={e => setRmForm({...rmForm, code: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                  <Field label="واحد" required><select value={rmForm.unit} onChange={e => setRmForm({...rmForm, unit: e.target.value})} className="w-full p-2 border rounded bg-white"><option>کیلوگرم</option><option>متر</option><option>عدد</option><option>لیتر</option><option>متر مربع</option></select></Field>
+                </div>
+                <Field label="نام" required><input required value={rmForm.name} onChange={e => setRmForm({...rmForm, name: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="حداقل ایمن" required><input type="number" required value={rmForm.minStock} onChange={e => setRmForm({...rmForm, minStock: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                  <Field label="موجودی فعلی" required><input type="number" required value={rmForm.currentStock} onChange={e => setRmForm({...rmForm, currentStock: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded p-2 text-[10px] text-amber-800">نقطه سفارش خودکار (۳۰٪): <strong>{fmt(calcRP(Number(rmForm.minStock) || 0))}</strong></div>
+                <Field label="تامین‌کننده"><input value={rmForm.supplier} onChange={e => setRmForm({...rmForm, supplier: e.target.value})} className="w-full p-2 border rounded" /></Field>
+                <div className="flex justify-end gap-2 pt-2 border-t"><button type="button" onClick={() => setEditRm(null)} className="px-4 py-2 bg-slate-100 rounded font-bold">انصراف</button><button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded font-bold">ذخیره</button></div>
+              </form>
+            </Modal>
+          )}
+
+          {printData && (
+            <Modal onClose={() => setPrintData(null)} title="پیش‌نمایش حواله" wide>
+              <div className="text-xs space-y-2 mb-4">
+                <p><strong>سند:</strong> {printData.docNo}</p>
+                <p><strong>گیرنده:</strong> {printData.recipient}</p>
+                <p><strong>صادرکننده:</strong> {printData.createdBy || '-'}</p>
+                <table className="w-full text-right border">
+                  <thead className="bg-slate-100"><tr><th className="p-2">کد</th><th className="p-2">کالا</th><th className="p-2">مقدار</th></tr></thead>
+                  <tbody>{printData.items.map((it, i) => <tr key={i} className="border-t"><td className="p-2">{it.code}</td><td className="p-2">{it.name} {it.isNewProduct && <span className="text-[9px] text-emerald-600">[جدید]</span>}</td><td className="p-2 text-center">{fmt(it.qty)} {it.unit}</td></tr>)}</tbody>
+                </table>
+              </div>
+              <div className="flex justify-end gap-2"><button onClick={() => setPrintData(null)} className="px-4 py-2 bg-slate-100 rounded text-xs font-bold">بستن</button><button onClick={() => printVoucher(printData)} className="px-4 py-2 bg-indigo-600 text-white rounded text-xs font-bold">چاپ</button></div>
+            </Modal>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
